@@ -13,6 +13,10 @@ class TemplateWorkbench(Gui.Workbench):
     ToolTip = "a simple template workbench"
     Icon = os.path.join(ICONPATH, "template_resource.svg")
     toolbox = ["MyCube"]
+    toolbox_from_other_wb = [
+        "Draft_Move",
+        "Draft_Rotate",
+    ]
 
     def GetClassName(self):
         return "Gui::PythonWorkbench"
@@ -29,6 +33,9 @@ class TemplateWorkbench(Gui.Workbench):
 
         self.appendToolbar("Tools", self.toolbox)
         self.appendMenu("Tools", self.toolbox)
+
+        self.appendToolbar("Tools from other WB", self.toolbox_from_other_wb)
+        self.appendMenu("Tools from other WB", self.toolbox_from_other_wb)
 
     def Activated(self):
         '''
