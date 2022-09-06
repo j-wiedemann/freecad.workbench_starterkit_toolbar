@@ -1,19 +1,40 @@
-from PySide import QtCore, QtGui
+# coding: utf-8
 
-import FreeCAD, FreeCADGui, math
-Vec = FreeCAD.Base.Vector
+import os
+import FreeCAD as App
+import Part
+import math
+from freecad.workbench_starterkit import ICONPATH
+from freecad.workbench_starterkit import RESOURCESPATH
 
-global path, file_len
+
+if App.GuiUp:
+    import FreeCADGui as Gui
+    from PySide import QtCore, QtGui
+    from DraftTools import translate
+    from PySide.QtCore import QT_TRANSLATE_NOOP
+else:
+    # \cond
+    def translate(ctxt, txt):
+        return txt
+    def QT_TRANSLATE_NOOP(ctxt, txt):
+        return txt
+    # \endcond
+
+
+
+Vec = App.Base.Vector
 
 class Box(QtGui.QDialog):
-    def __init__(self):
+    def __init__(self, profiles_path):
         
         fam_init = 12
         ind_init = 1
         
-        self.fams = recherche_fams()
+        self.profiles_path = profiles_path
+        self.fams = recherche_fams(self.profiles_path)
         self.fam  = self.fams[fam_init]
-        self.dims = recherche_dims(self.fam)
+        self.dims = recherche_dims(self.profiles_path, self.fam)
         self.dim = self.dims[ind_init]
             
         self.MakeFillet         = True
@@ -26,10 +47,7 @@ class Box(QtGui.QDialog):
         
         self.update_data()
          
-        self.o = SelObserver()
-        FreeCADGui.Selection.addObserver(self.o)   
-         
-        super(Box,self).__init__(Gui.getMainWindow(), QtCore.Qt.Tool)
+        super(Box, self).__init__(Gui.getMainWindow(), QtCore.Qt.Tool)
         self.initUI()
 
     def initUI(self):
@@ -204,22 +222,21 @@ class Box(QtGui.QDialog):
         self.show()
         
     def onCancel(self):
-        FreeCADGui.Selection.removeObserver(self.o) 
         self.close()
 
     def onOk(self):
         if self.SizeName: name = self.fam + "_" + self.dim + "_"
         else: name = self.fam
-            
+        doc = App.ActiveDocument
         obj=doc.addObject("Part::FeaturePython",name) 
         obj.addExtension("Part::AttachExtensionPython")
         obj.ViewObject.Proxy=0
-        viewObject = FreeCADGui.ActiveDocument.getObject(obj.Name)
+        viewObject = Gui.ActiveDocument.getObject(obj.Name)
         viewObject.DisplayMode = "Flat Lines"
         linksub = ""
         
         try:
-            selobj = FreeCADGui.Selection.getSelectionEx()[0]
+            selobj = Gui.Selection.getSelectionEx()[0]
             linksub = (selobj.Object, (selobj.SubElementNames[0]))
             selsubobj = selobj.SubObjects[0]
             feature = selobj.Object
@@ -250,12 +267,9 @@ class Box(QtGui.QDialog):
         Profile(obj,linksub,w,h,mt,ft,r1,r2,l,p,self.MakeFillet,self.HeightCentered,self.WidthCentered,self.fam,self.BevelsCombined)
         
         try:     d = selobj.Document
-        except:  d = FreeCAD.activeDocument()
+        except:  d = App.activeDocument()
         d.recompute()
-        
-        FreeCADGui.Selection.removeObserver(self.o) 
-       
-
+    
     def onCheckbox1(self,state):
         self.MakeFillet = state
 
@@ -277,7 +291,7 @@ class Box(QtGui.QDialog):
 
     def onComboFamily_Changed(self,texte):
         self.fam = texte
-        self.dims = recherche_dims(self.fam)
+        self.dims = recherche_dims(self.profiles_path, self.fam)
         self.dim = self.dims[0]
         self.ComboSize.clear()
         self.ComboSize.addItems(self.dims)
@@ -291,20 +305,20 @@ class Box(QtGui.QDialog):
         self.update_box()
         
     def update_data(self):
-        self.data = extrait_data(self.fam,self.dim)
-        try:   self.P_height          = self.data[recherche_ind(self.fam,"Height")]
+        self.data = extrait_data(self.profiles_path, self.fam, self.dim)
+        try:   self.P_height          = self.data[recherche_ind(self.profiles_path, self.fam, "Height")]
         except:self.P_height          = 0
-        try:   self.P_width           = self.data[recherche_ind(self.fam,"Width")]
+        try:   self.P_width           = self.data[recherche_ind(self.profiles_path, self.fam, "Width")]
         except:self.P_width           = 0
-        try:   self.P_mainthickness   = self.data[recherche_ind(self.fam,"Thickness")]
+        try:   self.P_mainthickness   = self.data[recherche_ind(self.profiles_path, self.fam, "Thickness")]
         except:self.P_mainthickness   = 0
-        try:   self.P_flangethickness = self.data[recherche_ind(self.fam,"Flange Thickness")]
+        try:   self.P_flangethickness = self.data[recherche_ind(self.profiles_path, self.fam, "Flange Thickness")]
         except:self.P_flangethickness = 0
-        try:   self.P_radius1         = self.data[recherche_ind(self.fam,"Radius1")]
+        try:   self.P_radius1         = self.data[recherche_ind(self.profiles_path, self.fam, "Radius1")]
         except:self.P_radius1         = 0
-        try:   self.P_radius2         = self.data[recherche_ind(self.fam,"Radius2")]
+        try:   self.P_radius2         = self.data[recherche_ind(self.profiles_path, self.fam, "Radius2")]
         except:self.P_radius2         = 0
-        try:   self.Weight            = self.data[recherche_ind(self.fam,"Weight")] 
+        try:   self.Weight            = self.data[recherche_ind(self.profiles_path, self.fam, "Weight")] 
         except:self.Weight            = 0
     
     def update_box(self):
@@ -318,9 +332,9 @@ class Box(QtGui.QDialog):
                 
     def update_selection(self,new_obj,new_sub):
         try:                                            # first run
-            selobj = FreeCADGui.Selection.getSelectionEx()[0]
+            selobj = Gui.Selection.getSelectionEx()[0]
             edgeName = selobj.SubElementNames[0]
-            sel = FreeCADGui.Selection.getSelectionEx()	
+            sel = Gui.Selection.getSelectionEx()	
             objname = sel[0].ObjectName
             nom = "Attachment: "+ objname + " / " + edgeName	
         except:
@@ -330,14 +344,18 @@ class Box(QtGui.QDialog):
  
         self.label_attach.setText(nom)
         print("updated attachement :",nom)
-        
-    
+
+
 class SelObserver():
-    def addSelection(self,doc,obj,sub,other):             
-        form.update_selection(obj,sub)
+    def __init__(self, form):
+        self.form = form
+
+    def addSelection(self, doc, obj, sub, other):             
+        self.form.update_selection(obj, sub)
         
-    def clearSelection(self,other):   
-        form.update_selection("","")
+    def clearSelection(self, other):   
+        self.form.update_selection("", "")
+
 
 class Profile:
    def __init__(self,obj,linksub,init_w,init_h,init_mt,init_ft,init_r1,init_r2,init_lenobj,init_wg,init_mf,init_hc,init_wc,type,bevels_combined):
@@ -1038,13 +1056,15 @@ class Profile:
         obj.Placement = pl
         obj.positionBySupport()
 
- 
-def recherche_fams():
+
+def recherche_fams(profiles_path):
     #Scan le fichier complet pour trouver les familles
     #Renvoie une liste contenant les noms
         tab =[]
-        pos = 0 
-        with open(path, "r") as file:
+        pos = 0
+        file_len = os.stat(profiles_path).st_size
+        print ("file: ", file_len) 
+        with open(profiles_path, "r") as file:
             while pos < file_len:
                 while True:
                     car = file.read(1)
@@ -1061,10 +1081,10 @@ def recherche_fams():
                 txt =""
         return tab    
 
-def trouve_txt(pos,txt):
+def trouve_txt(profiles_path, pos, txt):
     #Trouve un str à partir de pos
     #Renvoie la nouvelle position
-    with open(path, "r") as file:
+    with open(profiles_path, "r") as file:
         file.seek(pos)
         while True:
             ligne = file.readline()
@@ -1073,18 +1093,18 @@ def trouve_txt(pos,txt):
         pos_found = pos_line + ligne.find(txt)
     return pos_found
 
-def extrait_data(fam,size):
+def extrait_data(profiles_path, fam, size):
     #Extrait toutes les données pour une dimension d'une famille
     #Retour une liste:
     #Famille/Size/Donnée1/Donnée2...
     tab=[]
     tab.append(fam)
     tab.append(size)
-    posfam = trouve_txt(0,fam)
-    possize = trouve_txt(posfam,size)
+    posfam = trouve_txt(profiles_path, 0, fam)
+    possize = trouve_txt(profiles_path, posfam, size)
     car=str=""
        
-    with open(path, "r") as file:    
+    with open(profiles_path, "r") as file:    
         file.seek (possize+len(size))
         while True:   
             while True:
@@ -1097,32 +1117,32 @@ def extrait_data(fam,size):
     # print(tab)
     return tab 
 
-def recherche_ind(fam,type):
+def recherche_ind(profiles_path, fam,type):
     # Recherche l'indice de la donnée dans la famille
-    pos1 = trouve_txt(0,fam)
-    pos2 = trouve_txt(pos1+1,"*")
-    pos3 = trouve_txt(pos2+1,"*")
-    pos4 = trouve_txt(pos3+1,"*")
+    pos1 = trouve_txt(profiles_path, 0, fam)
+    pos2 = trouve_txt(profiles_path, pos1+1, "*")
+    pos3 = trouve_txt(profiles_path, pos2+1, "*")
+    pos4 = trouve_txt(profiles_path, pos3+1, "*")
     typ = []
     
-    with open(path, "r") as file:  
+    with open(profiles_path, "r") as file:  
         file.seek(pos4)
         ligne = file.readline().rstrip()
         typ = ligne.split("/")
         ind = typ.index(type)+1
     return ind
 
-def recherche_dims(fam):
+def recherche_dims(profiles_path, fam):
     #Recherche de toutes les dimensions d'une famille
     #Et retourne une liste les contenant
 
-    pos1 = trouve_txt(0,fam)
-    pos2 = trouve_txt(pos1+1,"*")
-    pos3 = trouve_txt(pos2+1,"*")
-    pos4 = trouve_txt(pos3+1,"*")
+    pos1 = trouve_txt(profiles_path, 0, fam)
+    pos2 = trouve_txt(profiles_path, pos1+1, "*")
+    pos3 = trouve_txt(profiles_path, pos2+1, "*")
+    pos4 = trouve_txt(profiles_path, pos3+1, "*")
     tab = []
     str = ""    
-    with open(path, "r") as file:
+    with open(profiles_path, "r") as file:
         file.seek(pos4)
         ligne = file.readline()
         car = file.read(1)
@@ -1139,19 +1159,43 @@ def recherche_dims(fam):
     return tab
   
    
+class _CommandWarehouseProfiles:
+    def __init__(self):
+        self.p = App.ParamGet("User parameter:BaseApp/Preferences/Mod/workbench_starterkit")
+        pass
 
-# get the path of the current python script
-file = "Profiles.txt"    
-macro_path = os.path.realpath(__file__)
-path = os.path.realpath(__file__)     
-path = os.path.dirname(path)          
-path = os.path.join(path,file)         
-file_len = os.stat(path).st_size
-print ("file: ",file_len) 
+    def GetResources(self):
+        "Tool resources"
+        from freecad.workbench_starterkit import ICONPATH
+        return {
+            "Pixmap": os.path.join(ICONPATH, "template_resource.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("StarterKit", "WarehouseProfiles"),
+            "Accel": "C, B",
+            "ToolTip": "<html><head/><body><p><b>Ajouter des profilés.</b> \
+                    <br><br> \
+                    </p></body></html>",
+        }
 
-doc = FreeCAD.activeDocument()
-if doc == None: doc = FreeCAD.newDocument()
+    def IsActive(self):
+        """Here you can define if the command must be active or not (greyed) if certain conditions
+        are met or not. This function is optional."""
+        active = False
+        if App.ActiveDocument:
+            active = True
+        return active
 
-form = Box()
-form.show()
-form.exec_()
+    def Activated(self):
+        """Define what happen when the user clic on the tool"""
+        self.profiles_path = self.p.GetString("profiles_path")
+        if self.profiles_path == '':
+            self.profiles_path = os.path.join(RESOURCESPATH, "Profiles.txt")
+        form = Box(self.profiles_path)
+        obs = SelObserver(form)
+        Gui.Selection.addObserver(obs)
+        form.show()
+        form.exec_()
+        
+        Gui.Selection.removeObserver(obs)
+
+if App.GuiUp:
+    Gui.addCommand("WarehouseProfiles", _CommandWarehouseProfiles())
